@@ -3,17 +3,23 @@ import mongoose from "mongoose";
 const applicationSchema = new mongoose.Schema({
   fullName: { type: String, required: true },
   email: { type: String, required: true },
-  dob: { type: String, required: true },
+  dob: { type: String, required: true }, // Changed to String to match HTML date input format easily
   gender: { type: String, required: true },
   executiveSummary: { type: String, required: true },
   inspiration: { type: String, required: true },
   futureImpact: { type: String, required: true },
   researchFile: {
-    filename: { type: String, required: true },
-    path: { type: String, required: true },
-    mimetype: { type: String, required: true },
-    size: { type: Number, required: true },
+    filename: { type: String },
+    path: { type: String },
+    mimetype: { type: String },
+    size: { type: Number }
   },
-}, { timestamps: true });
+  status: { type: String, default: 'pending', enum: ['pending', 'accepted', 'rejected'] },
+  createdAt: { type: Date, default: Date.now }
+});
 
-export default mongoose.model("Application", applicationSchema);
+// module.exports = mongoose.model('Application', applicationSchema);
+
+const Application = mongoose.model("Application", applicationSchema);
+
+export default Application;
