@@ -61,6 +61,7 @@ app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
       return res.status(400).json({ message: "Research PDF is required" });
     }
 
+
     const newApplication = await Application.create({
       fullName,
       email,
@@ -70,11 +71,11 @@ app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
       inspiration,
       futureImpact,
       researchFile: {
-        filename: req.file.filename,
-        path: req.file.path,
-        mimetype: req.file.mimetype,
-        size: req.file.size,
-      },
+      filename: req.file.filename,
+      fileId: req.file.id,              // real reference in Mongo
+      url: `/api/file/${req.file.id}`  // stable way to read it later
+    }, 
+
       status: 'pending' // Default status
     });
 
@@ -115,6 +116,25 @@ app.patch("/api/applications/:id/status", async (req, res) => {
     res.status(500).json({ message: "Update failed" });
   }
 });
+
+
+
+app.get("/api/file/:id", async (req, res) => {
+  try {
+    const file = await gfs.files.findOne({
+      _id: mongoose.Types.ObjectId(req.params.id),
+    });
+
+    if (!file) return res.status(404).json({ message: "File not found" });
+
+    const readStream = gfs.createReadStream({ _id: file._id });
+    res.set("Content-Type", file.contentType);
+    readStream.pipe(res);
+  } catch (err) {
+    res.status(500).json({ message: "Error retrieving file" });
+  }
+});
+
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
