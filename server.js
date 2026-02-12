@@ -559,78 +559,61 @@ app.use(cors());
 app.use(express.json());
 
 const MONGO_URI = process.env.MONGO_URI;
-if (!MONGO_URI) {
-  console.error("❌ MONGO_URI missing in .env");
-  process.exit(1);
-}
-
-let bucket;
-let mongoConnected = false;
+if (!MONGO_URI) throw new Error("MONGO_URI missing in .env");
 
 // --------------------
-// MongoDB connection
-// --------------------
-mongoose
-  .connect(MONGO_URI)
-  .then(() => {
-    console.log("🌿 MongoDB connected");
-    mongoConnected = true;
-    bucket = new GridFSBucket(mongoose.connection.db, {
-      bucketName: "researchFiles",
-    });
-    console.log("📦 GridFS ready");
-  })
-  .catch((err) => console.error("Mongo error:", err));
-
-// --------------------
-// Multer (memory storage)
+// Multer
 // --------------------
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
-    if (file.mimetype !== "application/pdf") {
-      return cb(new Error("Only PDFs allowed"));
-    }
+    if (file.mimetype !== "application/pdf") return cb(new Error("Only PDFs allowed"));
     cb(null, true);
   },
 });
 
 // --------------------
-// Helper to upload PDF to GridFS
+// Helper: get DB & GridFS bucket
 // --------------------
-function uploadToGridFS(file) {
+let cachedConnection = null;
+function getBucket() {
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (!cachedConnection) {
+        cachedConnection = await mongoose.connect(MONGO_URI);
+      }
+      const bucket = new GridFSBucket(cachedConnection.connection.db, { bucketName: "researchFiles" });
+      resolve(bucket);
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+function uploadToGridFS(file, bucket) {
   return new Promise((resolve, reject) => {
-    if (!bucket) return reject(new Error("GridFS not ready"));
-
-    const uploadStream = bucket.openUploadStream(file.originalname, {
-      contentType: file.mimetype,
-    });
-
+    const uploadStream = bucket.openUploadStream(file.originalname, { contentType: file.mimetype });
     uploadStream.end(file.buffer);
-
     uploadStream.on("finish", resolve);
     uploadStream.on("error", reject);
   });
 }
 
-// =====================================================
-// 📌 SUBMIT APPLICATION
-// =====================================================
+// --------------------
+// POST application
+// --------------------
 const BASE_URL = process.env.BACKEND_URL || "http://localhost:3001";
 
 app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
   try {
-    if (!mongoConnected || !bucket)
-      return res.status(503).json({ message: "GridFS not ready" });
-
     if (!req.file) return res.status(400).json({ message: "PDF required" });
 
-    const { fullName, email, dob, gender, executiveSummary, inspiration, futureImpact } =
-      req.body;
+    const { fullName, email, dob, gender, executiveSummary, inspiration, futureImpact } = req.body;
 
-    const file = await uploadToGridFS(req.file);
+    const bucket = await getBucket();
+    const file = await uploadToGridFS(req.file, bucket);
 
     const newApplication = await Application.create({
       fullName,
@@ -655,14 +638,12 @@ app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
   }
 });
 
-// =====================================================
-// 📌 GET FILE FROM GRIDFS
-// =====================================================
+// --------------------
+// GET file
+// --------------------
 app.get("/api/file/:id", async (req, res) => {
   try {
-    if (!mongoConnected || !bucket)
-      return res.status(503).json({ message: "GridFS not ready" });
-
+    const bucket = await getBucket();
     const fileId = new mongoose.Types.ObjectId(req.params.id);
     const files = await bucket.find({ _id: fileId }).toArray();
     if (!files || files.length === 0) return res.status(404).json({ message: "File not found" });
@@ -684,9 +665,9 @@ app.get("/api/file/:id", async (req, res) => {
   }
 });
 
-// =====================================================
-// 📌 OTHER ROUTES (ADMIN / STATUS)
-// =====================================================
+// --------------------
+// Other routes
+// --------------------
 app.get("/api/applications", async (req, res) => {
   try {
     const apps = await Application.find().sort({ createdAt: -1 });
@@ -699,8 +680,7 @@ app.get("/api/applications", async (req, res) => {
 app.patch("/api/applications/:id/status", async (req, res) => {
   try {
     const { status } = req.body;
-    if (!["accepted", "rejected", "pending"].includes(status))
-      return res.status(400).json({ message: "Invalid status" });
+    if (!["accepted", "rejected", "pending"].includes(status)) return res.status(400).json({ message: "Invalid status" });
 
     const updated = await Application.findByIdAndUpdate(req.params.id, { status }, { new: true });
     res.json(updated);
@@ -709,6 +689,5 @@ app.patch("/api/applications/:id/status", async (req, res) => {
   }
 });
 
-// =====================================================
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
