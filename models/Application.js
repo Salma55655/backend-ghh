@@ -8,11 +8,11 @@ const applicationSchema = new mongoose.Schema({
   executiveSummary: { type: String, required: true },
   inspiration: { type: String, required: true },
   futureImpact: { type: String, required: true },
+
   researchFile: {
+    fileId: { type: String },     // THIS is the important part
     filename: { type: String },
-    path: { type: String },
-    mimetype: { type: String },
-    size: { type: Number }
+    url: { type: String }
   },
   status: { type: String, default: 'pending', enum: ['pending', 'accepted', 'rejected'] },
   createdAt: { type: Date, default: Date.now }
