@@ -214,23 +214,27 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
-let bucket;
 
-// --------------------
-// MongoDB connection
-// --------------------
+
+
 mongoose
   .connect(MONGO_URI)
   .then(() => console.log("🌿 MongoDB connected"))
   .catch((err) => console.error("Mongo error:", err));
 
-mongoose.connection.once("open", () => {
-  bucket = new GridFSBucket(mongoose.connection.db, {
-    bucketName: "researchFiles",
-  });
-  console.log("📦 GridFS ready");
 
+let bucket;
+mongoose.connection.once("open", () => {
+  bucket = new GridFSBucket(mongoose.connection.db, { bucketName: "researchFiles" });
 });
+
+// mongoose.connection.once("open", () => {
+//   bucket = new GridFSBucket(mongoose.connection.db, {
+//     bucketName: "researchFiles",
+//   });
+//   console.log("📦 GridFS ready");
+
+// });
 // --------------------
 // Multer (memory storage)
 // --------------------
@@ -328,43 +332,277 @@ const upload = multer({
 // });
 
 
+// const BASE_URL = process.env.BACKEND_URL || "http://localhost:3001";
+
+// app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
+//   try {
+//     if (!bucket) return res.status(503).json({ message: "GridFS not ready" });
+//     if (!req.file) return res.status(400).json({ message: "PDF required" });
+
+//     const { fullName, email, dob, gender, executiveSummary, inspiration, futureImpact } = req.body;
+
+//     // upload to GridFS
+//     const file = await uploadToGridFS(req.file);
+
+//     const newApplication = await Application.create({
+//       fullName,
+//       email,
+//       dob,
+//       gender,
+//       executiveSummary,
+//       inspiration,
+//       futureImpact,
+//       researchFile: {
+//         fileId: file._id.toString(),
+//         filename: file.filename,
+//         url: `${BASE_URL}/api/file/${file._id}`, // full URL for deployed frontend
+//       },
+//       status: "pending",
+//     });
+
+//     res.status(201).json({ message: "Application submitted", applicationId: newApplication._id });
+
+//   } catch (err) {
+//     console.error("UPLOAD ERROR:", err);
+//     res.status(500).json({ message: "Upload failed" });
+//   }
+// });
+
+// // app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
+// //   try {
+// //     if (!bucket) {
+// //       return res.status(500).json({ message: "GridFS not ready" });
+      
+// //     }
+
+// //     const {
+// //       fullName,
+// //       email,
+// //       dob,
+// //       gender,
+// //       executiveSummary,
+// //       inspiration,
+// //       futureImpact,
+// //     } = req.body;
+
+// //     if (!req.file) {
+// //       return res.status(400).json({ message: "PDF required" });
+// //     }
+
+// //     const uploadStream = bucket.openUploadStream(req.file.originalname, {
+// //       contentType: req.file.mimetype,
+// //     });
+
+// //     uploadStream.end(req.file.buffer);
+
+// //     uploadStream.on("finish", async () => {
+// //       const fileId = uploadStream.id;
+
+// //       const newApplication = await Application.create({
+// //         fullName,
+// //         email,
+// //         dob,
+// //         gender,
+// //         executiveSummary,
+// //         inspiration,
+// //         futureImpact,
+// //         researchFile: {
+// //           fileId: fileId.toString(),
+// //           filename: req.file.originalname,
+// //           url: `/api/file/${fileId}`,
+// //         },
+// //         status: "pending",
+// //       });
+
+// //       res.status(201).json({
+// //         message: "Application submitted",
+// //         applicationId: newApplication._id,
+// //       });
+// //     });
+
+// //   } catch (err) {
+// //     console.error(err);
+// //     res.status(500).json({ message: "Upload failed" });
+// //   }
+// // });
+
+
+// // =====================================================
+// // 📌 GET ALL APPLICATIONS (ADMIN)
+// // =====================================================
+// app.get("/api/applications", async (req, res) => {
+//   try {
+//     const apps = await Application.find().sort({ createdAt: -1 });
+//     res.json(apps);
+//   } catch (err) {
+//     res.status(500).json({ message: "Failed to fetch applications" });
+//   }
+// });
+
+// // =====================================================
+// // 📌 UPDATE STATUS
+// // =====================================================
+// app.patch("/api/applications/:id/status", async (req, res) => {
+//   try {
+//     const { status } = req.body;
+
+//     if (!["accepted", "rejected", "pending"].includes(status)) {
+//       return res.status(400).json({ message: "Invalid status" });
+//     }
+
+//     const updated = await Application.findByIdAndUpdate(
+//       req.params.id,
+//       { status },
+//       { new: true }
+//     );
+
+//     res.json(updated);
+//   } catch (err) {
+//     res.status(500).json({ message: "Update failed" });
+//   }
+// });
+
+// // =====================================================
+// // // 📌 STREAM PDF FROM MONGO TO FRONTEND
+// // // =====================================================
+// // app.get("/api/file/:id", async (req, res) => {
+// //   try {
+// //     const fileId = new mongoose.Types.ObjectId(req.params.id);
+
+// //     const files = await bucket.find({ _id: fileId }).toArray();
+// //     if (!files.length) {
+// //       return res.status(404).json({ message: "File not found" });
+// //     }
+
+// //     res.set("Content-Type", files[0].contentType);
+
+// //     const downloadStream = bucket.openDownloadStream(fileId);
+// //     downloadStream.pipe(res);
+// //   } catch (err) {
+// //     console.error(err);
+// //     res.status(500).json({ message: "File retrieval error" });
+// //   }
+// // });
+
+
+// app.get("/api/file/:id", async (req, res) => {
+//   try {
+//     if (!bucket) {
+//       return res.status(500).json({ message: "Bucket not ready" });
+//     }
+
+//     const fileId = new mongoose.Types.ObjectId(req.params.id);
+
+//     const files = await bucket.find({ _id: fileId }).toArray();
+
+//     if (!files || files.length === 0) {
+//       return res.status(404).json({ message: "File not found" });
+//     }
+
+//     const file = files[0];
+
+//     res.setHeader("Content-Type", file.contentType || "application/pdf");
+//     res.setHeader(
+//       "Content-Disposition",
+//       `inline; filename="${file.filename}"`
+//     );
+
+//     const downloadStream = bucket.openDownloadStream(fileId);
+
+//     downloadStream.on("error", (err) => {
+//       console.error("Stream error:", err);
+//       res.status(500).end();
+//     });
+
+//     downloadStream.pipe(res);
+//   } catch (err) {
+//     console.error("FILE ERROR:", err);
+//     res.status(500).json({ message: "File retrieval error" });
+//   }
+// });
+
+// // =====================================================
+// const PORT = process.env.PORT || 3001;
+// app.listen(PORT, () => {
+//   console.log(`🚀 Server running on http://localhost:${PORT}`);
+// });
+
+
+
+
 const BASE_URL = process.env.BACKEND_URL || "http://localhost:3001";
+//   try {
+//     if (!bucket) return res.status(503).json({ message: "GridFS not ready" });
+//     if (!req.file) return res.status(400).json({ message: "PDF required" });
+
+//     const { fullName, email, dob, gender, executiveSummary, inspiration, futureImpact } = req.body;
+
+//     // upload to GridFS
+//     const file = await uploadToGridFS(req.file);
+
+//     const newApplication = await Application.create({
+//       fullName,
+//       email,
+//       dob,
+//       gender,
+//       executiveSummary,
+//       inspiration,
+//       futureImpact,
+//       researchFile: {
+//         fileId: file._id.toString(),
+//         filename: file.filename,
+//         url: `${BASE_URL}/api/file/${file._id}`, // full URL for deployed frontend
+//       },
+//       status: "pending",
+//     });
+
+//     res.status(201).json({ message: "Application submitted", applicationId: newApplication._id });
+
+//   } catch (err) {
+//     console.error("UPLOAD ERROR:", err);
+//     res.status(500).json({ message: "Upload failed" });
+//   }
+// });
 
 app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
   try {
-    if (!bucket) return res.status(503).json({ message: "GridFS not ready" });
+    const bucket = getBucket(); // initialize bucket per request
     if (!req.file) return res.status(400).json({ message: "PDF required" });
 
-    const { fullName, email, dob, gender, executiveSummary, inspiration, futureImpact } = req.body;
-
-    // upload to GridFS
-    const file = await uploadToGridFS(req.file);
-
-    const newApplication = await Application.create({
-      fullName,
-      email,
-      dob,
-      gender,
-      executiveSummary,
-      inspiration,
-      futureImpact,
-      researchFile: {
-        fileId: file._id.toString(),
-        filename: file.filename,
-        url: `${BASE_URL}/api/file/${file._id}`, // full URL for deployed frontend
-      },
-      status: "pending",
+    const uploadStream = bucket.openUploadStream(req.file.originalname, {
+      contentType: req.file.mimetype,
     });
+    uploadStream.end(req.file.buffer);
 
-    res.status(201).json({ message: "Application submitted", applicationId: newApplication._id });
+    uploadStream.on("finish", async (file) => {
+      const newApplication = await Application.create({
+        fullName: req.body.fullName,
+        email: req.body.email,
+        dob: req.body.dob,
+        gender: req.body.gender,
+        executiveSummary: req.body.executiveSummary,
+        inspiration: req.body.inspiration,
+        futureImpact: req.body.futureImpact,
+        researchFile: {
+          fileId: file._id.toString(),
+          filename: file.filename,
+          url: `${BASE_URL}/api/file/${file._id}`,
+        },
+        status: "pending",
+      });
 
+      res.status(201).json({
+        message: "Application submitted",
+        applicationId: newApplication._id,
+      });
+    });
   } catch (err) {
     console.error("UPLOAD ERROR:", err);
     res.status(500).json({ message: "Upload failed" });
   }
 });
 
-// app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
+
 //   try {
 //     if (!bucket) {
 //       return res.status(500).json({ message: "GridFS not ready" });
@@ -458,58 +696,24 @@ app.patch("/api/applications/:id/status", async (req, res) => {
   }
 });
 
-// =====================================================
-// // 📌 STREAM PDF FROM MONGO TO FRONTEND
-// // =====================================================
-// app.get("/api/file/:id", async (req, res) => {
-//   try {
-//     const fileId = new mongoose.Types.ObjectId(req.params.id);
-
-//     const files = await bucket.find({ _id: fileId }).toArray();
-//     if (!files.length) {
-//       return res.status(404).json({ message: "File not found" });
-//     }
-
-//     res.set("Content-Type", files[0].contentType);
-
-//     const downloadStream = bucket.openDownloadStream(fileId);
-//     downloadStream.pipe(res);
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ message: "File retrieval error" });
-//   }
-// });
-
 
 app.get("/api/file/:id", async (req, res) => {
   try {
-    if (!bucket) {
-      return res.status(500).json({ message: "Bucket not ready" });
-    }
-
+    const bucket = getBucket(); // get bucket per request
     const fileId = new mongoose.Types.ObjectId(req.params.id);
 
     const files = await bucket.find({ _id: fileId }).toArray();
-
-    if (!files || files.length === 0) {
-      return res.status(404).json({ message: "File not found" });
-    }
+    if (!files.length) return res.status(404).json({ message: "File not found" });
 
     const file = files[0];
-
     res.setHeader("Content-Type", file.contentType || "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${file.filename}"`
-    );
+    res.setHeader("Content-Disposition", `inline; filename="${file.filename}"`);
 
     const downloadStream = bucket.openDownloadStream(fileId);
-
     downloadStream.on("error", (err) => {
       console.error("Stream error:", err);
       res.status(500).end();
     });
-
     downloadStream.pipe(res);
   } catch (err) {
     console.error("FILE ERROR:", err);
