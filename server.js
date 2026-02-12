@@ -229,8 +229,8 @@ mongoose.connection.once("open", () => {
     bucketName: "researchFiles",
   });
   console.log("📦 GridFS ready");
-});
 
+});
 // --------------------
 // Multer (memory storage)
 // --------------------
@@ -327,13 +327,20 @@ const upload = multer({
 //   }
 // });
 
+
+const BASE_URL = process.env.BACKEND_URL || "http://localhost:3001";
+
 app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
   try {
-    if (!bucket) {
-      return res.status(500).json({ message: "GridFS not ready" });
-    }
+    if (!bucket) return res.status(503).json({ message: "GridFS not ready" });
+    if (!req.file) return res.status(400).json({ message: "PDF required" });
 
-    const {
+    const { fullName, email, dob, gender, executiveSummary, inspiration, futureImpact } = req.body;
+
+    // upload to GridFS
+    const file = await uploadToGridFS(req.file);
+
+    const newApplication = await Application.create({
       fullName,
       email,
       dob,
@@ -341,48 +348,79 @@ app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
       executiveSummary,
       inspiration,
       futureImpact,
-    } = req.body;
-
-    if (!req.file) {
-      return res.status(400).json({ message: "PDF required" });
-    }
-
-    const uploadStream = bucket.openUploadStream(req.file.originalname, {
-      contentType: req.file.mimetype,
+      researchFile: {
+        fileId: file._id.toString(),
+        filename: file.filename,
+        url: `${BASE_URL}/api/file/${file._id}`, // full URL for deployed frontend
+      },
+      status: "pending",
     });
 
-    uploadStream.end(req.file.buffer);
-
-    uploadStream.on("finish", async () => {
-      const fileId = uploadStream.id;
-
-      const newApplication = await Application.create({
-        fullName,
-        email,
-        dob,
-        gender,
-        executiveSummary,
-        inspiration,
-        futureImpact,
-        researchFile: {
-          fileId: fileId.toString(),
-          filename: req.file.originalname,
-          url: `/api/file/${fileId}`,
-        },
-        status: "pending",
-      });
-
-      res.status(201).json({
-        message: "Application submitted",
-        applicationId: newApplication._id,
-      });
-    });
+    res.status(201).json({ message: "Application submitted", applicationId: newApplication._id });
 
   } catch (err) {
-    console.error(err);
+    console.error("UPLOAD ERROR:", err);
     res.status(500).json({ message: "Upload failed" });
   }
 });
+
+// app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
+//   try {
+//     if (!bucket) {
+//       return res.status(500).json({ message: "GridFS not ready" });
+      
+//     }
+
+//     const {
+//       fullName,
+//       email,
+//       dob,
+//       gender,
+//       executiveSummary,
+//       inspiration,
+//       futureImpact,
+//     } = req.body;
+
+//     if (!req.file) {
+//       return res.status(400).json({ message: "PDF required" });
+//     }
+
+//     const uploadStream = bucket.openUploadStream(req.file.originalname, {
+//       contentType: req.file.mimetype,
+//     });
+
+//     uploadStream.end(req.file.buffer);
+
+//     uploadStream.on("finish", async () => {
+//       const fileId = uploadStream.id;
+
+//       const newApplication = await Application.create({
+//         fullName,
+//         email,
+//         dob,
+//         gender,
+//         executiveSummary,
+//         inspiration,
+//         futureImpact,
+//         researchFile: {
+//           fileId: fileId.toString(),
+//           filename: req.file.originalname,
+//           url: `/api/file/${fileId}`,
+//         },
+//         status: "pending",
+//       });
+
+//       res.status(201).json({
+//         message: "Application submitted",
+//         applicationId: newApplication._id,
+//       });
+//     });
+
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ message: "Upload failed" });
+//   }
+// });
 
 
 // =====================================================
