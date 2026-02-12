@@ -574,10 +574,8 @@ if (!MONGO_URI) {
 let conn = null;
 async function connectDB() {
   if (conn) return conn;
-  conn = await mongoose.connect(MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  });
+  conn = await mongoose.connect(MONGO_URI);
+
   return conn;
 }
 
