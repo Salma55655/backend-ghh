@@ -544,8 +544,6 @@
 
 
 
-
-
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
@@ -555,42 +553,37 @@ import { GridFSBucket } from "mongodb";
 import Application from "./models/Application.js";
 
 dotenv.config();
-
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 
-const BASE_URL = process.env.BACKEND_URL || "http://localhost:3001";
 const MONGO_URI = process.env.MONGO_URI;
-
 if (!MONGO_URI) {
   console.error("❌ MONGO_URI missing in .env");
   process.exit(1);
 }
 
-// --------------------
-// MongoDB connection (cached for serverless)
-// --------------------
-let conn = null;
-async function connectDB() {
-  if (conn) return conn;
-  conn = await mongoose.connect(MONGO_URI);
-
-  return conn;
-}
+let bucket;
+let mongoConnected = false;
 
 // --------------------
-// Get GridFS bucket
+// MongoDB connection
 // --------------------
-function getBucket() {
-  if (!mongoose.connection.db) {
-    throw new Error("MongoDB not connected yet");
-  }
-  return new GridFSBucket(mongoose.connection.db, { bucketName: "researchFiles" });
-}
+mongoose
+  .connect(MONGO_URI)
+  .then(() => {
+    console.log("🌿 MongoDB connected");
+    mongoConnected = true;
+    bucket = new GridFSBucket(mongoose.connection.db, {
+      bucketName: "researchFiles",
+    });
+    console.log("📦 GridFS ready");
+  })
+  .catch((err) => console.error("Mongo error:", err));
 
 // --------------------
-// Multer setup (memory storage)
+// Multer (memory storage)
 // --------------------
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -604,17 +597,42 @@ const upload = multer({
   },
 });
 
+// --------------------
+// Helper to upload PDF to GridFS
+// --------------------
+function uploadToGridFS(file) {
+  return new Promise((resolve, reject) => {
+    if (!bucket) return reject(new Error("GridFS not ready"));
+
+    const uploadStream = bucket.openUploadStream(file.originalname, {
+      contentType: file.mimetype,
+    });
+
+    uploadStream.end(file.buffer);
+
+    uploadStream.on("finish", resolve);
+    uploadStream.on("error", reject);
+  });
+}
+
 // =====================================================
 // 📌 SUBMIT APPLICATION
 // =====================================================
+const BASE_URL = process.env.BACKEND_URL || "http://localhost:3001";
+
 app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
   try {
-    await connectDB();
-    const bucket = getBucket();
+    if (!mongoConnected || !bucket)
+      return res.status(503).json({ message: "GridFS not ready" });
 
-    if (!req.file) return res.status(400).json({ message: "PDF is required" });
+    if (!req.file) return res.status(400).json({ message: "PDF required" });
 
-    const {
+    const { fullName, email, dob, gender, executiveSummary, inspiration, futureImpact } =
+      req.body;
+
+    const file = await uploadToGridFS(req.file);
+
+    const newApplication = await Application.create({
       fullName,
       email,
       dob,
@@ -622,128 +640,75 @@ app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
       executiveSummary,
       inspiration,
       futureImpact,
-    } = req.body;
-
-    // Upload PDF to GridFS
-    const uploadStream = bucket.openUploadStream(req.file.originalname, {
-      contentType: req.file.mimetype,
+      researchFile: {
+        fileId: file._id.toString(),
+        filename: file.filename,
+        url: `${BASE_URL}/api/file/${file._id}`,
+      },
+      status: "pending",
     });
 
-    uploadStream.end(req.file.buffer);
-
-    uploadStream.on("finish", async (file) => {
-      try {
-        const newApplication = await Application.create({
-          fullName,
-          email,
-          dob,
-          gender,
-          executiveSummary,
-          inspiration,
-          futureImpact,
-          researchFile: {
-            fileId: file._id.toString(),
-            filename: file.filename,
-            url: `${BASE_URL}/api/file/${file._id}`,
-          },
-          status: "pending",
-        });
-
-        res.status(201).json({
-          message: "Application submitted",
-          applicationId: newApplication._id,
-        });
-      } catch (err) {
-        console.error("DB CREATE ERROR:", err.stack || err);
-        res.status(500).json({ message: "Database error" });
-      }
-    });
-
-    uploadStream.on("error", (err) => {
-      console.error("UPLOAD STREAM ERROR:", err.stack || err);
-      res.status(500).json({ message: "File upload failed" });
-    });
-
+    res.status(201).json({ message: "Application submitted", applicationId: newApplication._id });
   } catch (err) {
-    console.error("UPLOAD ERROR:", err.stack || err);
-    res.status(500).json({ message: err.message });
+    console.error("UPLOAD ERROR:", err);
+    res.status(500).json({ message: "Upload failed" });
   }
 });
 
 // =====================================================
-// 📌 GET ALL APPLICATIONS (ADMIN)
-// =====================================================
-app.get("/api/applications", async (req, res) => {
-  try {
-    await connectDB();
-    const apps = await Application.find().sort({ createdAt: -1 });
-    res.json(apps);
-  } catch (err) {
-    console.error("FETCH APPS ERROR:", err.stack || err);
-    res.status(500).json({ message: "Failed to fetch applications" });
-  }
-});
-
-// =====================================================
-// 📌 UPDATE STATUS
-// =====================================================
-app.patch("/api/applications/:id/status", async (req, res) => {
-  try {
-    await connectDB();
-    const { status } = req.body;
-
-    if (!["accepted", "rejected", "pending"].includes(status)) {
-      return res.status(400).json({ message: "Invalid status" });
-    }
-
-    const updated = await Application.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    );
-
-    res.json(updated);
-  } catch (err) {
-    console.error("UPDATE STATUS ERROR:", err.stack || err);
-    res.status(500).json({ message: "Update failed" });
-  }
-});
-
-// =====================================================
-// 📌 STREAM PDF FROM GRIDFS
+// 📌 GET FILE FROM GRIDFS
 // =====================================================
 app.get("/api/file/:id", async (req, res) => {
   try {
-    await connectDB();
-    const bucket = getBucket();
+    if (!mongoConnected || !bucket)
+      return res.status(503).json({ message: "GridFS not ready" });
 
     const fileId = new mongoose.Types.ObjectId(req.params.id);
     const files = await bucket.find({ _id: fileId }).toArray();
-
-    if (!files || files.length === 0) {
-      return res.status(404).json({ message: "File not found" });
-    }
+    if (!files || files.length === 0) return res.status(404).json({ message: "File not found" });
 
     const file = files[0];
     res.setHeader("Content-Type", file.contentType || "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="${file.filename}"`);
 
     const downloadStream = bucket.openDownloadStream(fileId);
-    downloadStream.pipe(res);
-
     downloadStream.on("error", (err) => {
-      console.error("DOWNLOAD STREAM ERROR:", err.stack || err);
+      console.error("Stream error:", err);
       res.status(500).end();
     });
 
+    downloadStream.pipe(res);
   } catch (err) {
-    console.error("FILE RETRIEVAL ERROR:", err.stack || err);
+    console.error("FILE ERROR:", err);
     res.status(500).json({ message: "File retrieval error" });
   }
 });
 
 // =====================================================
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+// 📌 OTHER ROUTES (ADMIN / STATUS)
+// =====================================================
+app.get("/api/applications", async (req, res) => {
+  try {
+    const apps = await Application.find().sort({ createdAt: -1 });
+    res.json(apps);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch applications" });
+  }
 });
+
+app.patch("/api/applications/:id/status", async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!["accepted", "rejected", "pending"].includes(status))
+      return res.status(400).json({ message: "Invalid status" });
+
+    const updated = await Application.findByIdAndUpdate(req.params.id, { status }, { new: true });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Update failed" });
+  }
+});
+
+// =====================================================
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
