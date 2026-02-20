@@ -577,20 +577,37 @@ const upload = multer({
 // --------------------
 // Helper: get DB & GridFS bucket
 // --------------------
+
 let cachedConnection = null;
+
+async function connectDB() {
+  if (cachedConnection) return cachedConnection;
+
+  cachedConnection = await mongoose.connect(MONGO_URI);
+  console.log("✅ Mongo Connected");
+
+  return cachedConnection;
+}
+
 function getBucket() {
-  return new Promise(async (resolve, reject) => {
-    try {
-      if (!cachedConnection) {
-        cachedConnection = await mongoose.connect(MONGO_URI);
-      }
-      const bucket = new GridFSBucket(cachedConnection.connection.db, { bucketName: "researchFiles" });
-      resolve(bucket);
-    } catch (err) {
-      reject(err);
-    }
+  return new GridFSBucket(mongoose.connection.db, {
+    bucketName: "researchFiles",
   });
 }
+
+// function getBucket() {
+//   return new Promise(async (resolve, reject) => {
+//     try {
+//       if (!cachedConnection) {
+//         cachedConnection = await mongoose.connect(MONGO_URI);
+//       }
+//       const bucket = new GridFSBucket(cachedConnection.connection.db, { bucketName: "researchFiles" });
+//       resolve(bucket);
+//     } catch (err) {
+//       reject(err);
+//     }
+//   });
+// }
 
 function uploadToGridFS(file, bucket) {
   return new Promise((resolve, reject) => {
@@ -608,6 +625,8 @@ const BASE_URL = process.env.BACKEND_URL || "http://localhost:3001";
 
 app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
   try {
+    await connectDB(); 
+
     if (!req.file) return res.status(400).json({ message: "PDF required" });
 
     const { fullName, email, dob, gender, executiveSummary, inspiration, futureImpact } = req.body;
@@ -643,6 +662,7 @@ app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
 // --------------------
 app.get("/api/file/:id", async (req, res) => {
   try {
+    await connectDB(); 
     const bucket = await getBucket();
     const fileId = new mongoose.Types.ObjectId(req.params.id);
     const files = await bucket.find({ _id: fileId }).toArray();
@@ -670,6 +690,8 @@ app.get("/api/file/:id", async (req, res) => {
 // --------------------
 app.get("/api/applications", async (req, res) => {
   try {
+    await connectDB(); 
+
     const apps = await Application.find().sort({ createdAt: -1 });
     res.json(apps);
   } catch (err) {
@@ -691,3 +713,6 @@ app.patch("/api/applications/:id/status", async (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
+
+console.log("Mongo readyState:", mongoose.connection.readyState);
