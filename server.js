@@ -78,15 +78,23 @@ function getBucket() {
 
 
 
+// function uploadToGridFS(file, bucket) {
+//   return new Promise((resolve, reject) => {
+//     const uploadStream = bucket.openUploadStream(file.originalname, { contentType: file.mimetype });
+//     uploadStream.end(file.buffer);
+//     uploadStream.on("finish", resolve);
+//     uploadStream.on("error", reject);
+//   });
+// }
+
 function uploadToGridFS(file, bucket) {
   return new Promise((resolve, reject) => {
     const uploadStream = bucket.openUploadStream(file.originalname, { contentType: file.mimetype });
     uploadStream.end(file.buffer);
-    uploadStream.on("finish", resolve);
+    uploadStream.on("finish", () => resolve(uploadStream)); // ✅ resolve the stream itself
     uploadStream.on("error", reject);
   });
 }
-
 
 if (!process.env.BASE_URL) {
   throw new Error("BASE_URL missing in environment variables");
@@ -105,6 +113,8 @@ app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
     const bucket = await getBucket();
     const file = await uploadToGridFS(req.file, bucket);
 
+
+    
     const newApplication = await Application.create({
       fullName,
       email,
@@ -114,9 +124,9 @@ app.post("/api/apply", upload.single("researchFile"), async (req, res) => {
       inspiration,
       futureImpact,
       researchFile: {
-        fileId: file._id.toString(),
+        fileId: file.id.toString(),
         filename: file.filename,
-        url: `${BASE_URL}/api/file/${file._id}`,
+        url: `${BASE_URL}/api/file/${file.id}`,
       },
       status: "pending",
     });
@@ -182,14 +192,7 @@ app.patch("/api/applications/:id/status", async (req, res) => {
   }
 });
 
-if (!process.env.BASE_URL) {
-  throw new Error("BASE_URL missing in environment variables");
-}
-
-
 export default app;
-
-
 
 
 
